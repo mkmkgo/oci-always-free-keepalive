@@ -40,6 +40,7 @@ Oracle Cloud 的 Always Free 实例长期空着会被回收。很多人于是跑
 - [工作原理](#-工作原理)
 - [7 天自检：证明你真的达标](#-7-天自检证明你真的达标)
 - [配置](#-配置)
+- [磁盘占用](#-磁盘占用)
 - [命令参考：暂停 / 关闭 / 卸载](#-命令参考暂停--关闭--卸载)
 - [常见问题](#-常见问题)
 - [项目结构](#-项目结构)
@@ -256,6 +257,47 @@ oci-keepalive-check --strict   # 未达标退出 1，无数据退出 2
 
 ---
 
+## 磁盘占用
+
+结论：**长期运行不会撑爆硬盘**。程序只写两类数据，两者都有上限；它不写自己的 `/var/log/*.log`，也不产生 core dump、`.pyc` 或缓存文件。
+
+| 写入位置 | 频率 | 上限 | 清理方式 |
+|---|---|---|---|
+| `/var/lib/oci-keepalive/metrics.jsonl` | 每分钟 1 条 | 11000 行 ≈ **0.6 MB** | 服务每天裁剪一次，只留滚动 7 天 |
+| journald 状态日志 `cpu=... fill=...` | 每分钟 1 行 | 由 journald 全局上限决定 | 系统自动轮转，删最旧归档 |
+| `/opt/oci-keepalive/` | 安装时一次 | 约 20 KB | 卸载时删除 |
+| `/run/oci-keepalive.lock` | — | 0 字节 | `/run` 是 tmpfs（内存），不占磁盘 |
+
+实测（1 OCPU Ubuntu、58 GB 盘、运行数小时）：
+
+```text
+/var/lib/oci-keepalive/      8 KB   (39 条采样, 2.2 KB)
+/opt/oci-keepalive/          20 KB
+/var/log/journal/            24 MB  ← 整机所有服务合计，不是保活独占
+```
+
+采样文件每行约 58 字节，7 天满窗口 = 10080 行 ≈ 580 KB；`MAX_LINES = 11000` 是第二道保险，即使时钟异常也不会超过约 640 KB。裁剪用 `os.replace()` 原子替换，不留临时文件。
+
+状态日志走 systemd-journald，默认每分钟一行（约 1440 行/天）。journald 自带**按空间轮转**：默认上限约为文件系统的 10%、最多 4 GB，且始终保留 15% 空闲空间，达到上限就删除最旧的归档，因此不会无限增长。上面实测的 24 MB 是整机（含宝塔、内核、SSH 等）全部日志，保活只占其中一小部分。
+
+### 想再省一点（可选）
+
+```bash
+# 1) 关掉状态日志、保留采样：自检和保活都不受影响（推荐）
+sudo sed -i 's/^KEEPALIVE_LOG_EVERY=.*/KEEPALIVE_LOG_EVERY=0/' /etc/oci-keepalive.conf
+sudo systemctl restart oci-keepalive
+
+# 2) 或降低频率，例如每 10 分钟一行：KEEPALIVE_LOG_EVERY=600
+
+# 3) 给整机 journald 设一个更紧的硬上限
+printf '[Journal]\nSystemMaxUse=200M\n' | sudo tee /etc/systemd/journald.conf.d/10-size.conf
+sudo systemctl restart systemd-journald
+```
+
+> 别把 `KEEPALIVE_METRICS_EVERY` 设成 0——那样 `oci-keepalive-check` 就没有 7 天依据了。也别把它调到远小于 60 秒：`MAX_LINES` 会把可覆盖的时间窗口压缩到不足 7 天，自检结果会失真。保持默认即可。
+
+---
+
 ## 命令参考：暂停 / 关闭 / 卸载
 
 三种「不想要了」的力度，按需选：
@@ -331,9 +373,9 @@ OCI 控制台 → Compute → Instances → 你的实例 → **Metrics → CPU U
 </details>
 
 <details>
-<summary><b>采样文件会不会一直变大？</b></summary>
+<summary><b>跑久了会不会把硬盘占满？</b></summary>
 
-不会。每分钟 1 条、约 10080 条/7 天，服务每天清理一次，只保留滚动 7 天窗口，且最多 11000 行（约 1 MB）。
+不会。采样文件有 11000 行的硬上限（约 0.6 MB）并每天裁剪；状态日志交给 journald，由系统自带轮转控制上限。完整数据和调优方法见 [磁盘占用](#-磁盘占用)。
 </details>
 
 ---

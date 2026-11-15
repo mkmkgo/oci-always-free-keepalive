@@ -167,6 +167,47 @@ After raising `KEEPALIVE_TARGET`, re-run `install.sh` so `CPUQuota` is recalcula
 
 ---
 
+## Disk footprint
+
+**No, it will not fill your disk over time.** Only two kinds of data are written, both bounded. There is no private `/var/log/*.log`, no core dumps, no `.pyc` files and no caches.
+
+| Location | Rate | Ceiling | Cleanup |
+|---|---|---|---|
+| `/var/lib/oci-keepalive/metrics.jsonl` | 1 line / minute | 11000 lines ≈ **0.6 MB** | Pruned daily, rolling 7-day window |
+| journald status lines `cpu=... fill=...` | 1 line / minute | journald's global cap | Automatic rotation, oldest archives dropped |
+| `/opt/oci-keepalive/` | once, at install | ~20 KB | Removed by `uninstall.sh` |
+| `/run/oci-keepalive.lock` | — | 0 bytes | tmpfs (RAM), not on disk |
+
+Measured on a 1 OCPU Ubuntu instance with a 58 GB disk, after a few hours:
+
+```text
+/var/lib/oci-keepalive/      8 KB   (39 samples, 2.2 KB)
+/opt/oci-keepalive/          20 KB
+/var/log/journal/            24 MB  <- all services combined, not just keepalive
+```
+
+Each sample is ~58 bytes; a full 7-day window is 10080 lines ≈ 580 KB. `MAX_LINES = 11000` is a second guard, so even with a broken clock the file stays under ~640 KB. Pruning uses `os.replace()` for an atomic swap and leaves no temp files.
+
+Status lines go to systemd-journald (default 1/min ≈ 1440/day). journald rotates **by space**: the default cap is ~10% of the filesystem (max 4 GB) while keeping 15% free, and it deletes the oldest archives when the cap is hit — it cannot grow forever. The 24 MB above is everything on the host (kernel, SSH, control panel, etc.), not this service alone.
+
+### Trim it further (optional)
+
+```bash
+# 1) Disable status logs but keep sampling; self-check still works (recommended)
+sudo sed -i 's/^KEEPALIVE_LOG_EVERY=.*/KEEPALIVE_LOG_EVERY=0/' /etc/oci-keepalive.conf
+sudo systemctl restart oci-keepalive
+
+# 2) Or log less often, e.g. KEEPALIVE_LOG_EVERY=600
+
+# 3) Or cap journald host-wide
+printf '[Journal]\nSystemMaxUse=200M\n' | sudo tee /etc/systemd/journald.conf.d/10-size.conf
+sudo systemctl restart systemd-journald
+```
+
+> Do not set `KEEPALIVE_METRICS_EVERY=0`: `oci-keepalive-check` then has no 7-day data. Do not push it far below 60 seconds either — `MAX_LINES` would shrink the covered window below 7 days and the self-check would be misleading. Keep the default.
+
+---
+
 ## Stop, disable, uninstall
 
 | Goal | Command | After reboot |
@@ -192,6 +233,8 @@ After raising `KEEPALIVE_TARGET`, re-run `install.sh` so `CPUQuota` is recalcula
 **What about 2 / 4 OCPU shapes?** Just re-run `install.sh`: worker count follows CPU affinity and `CPUQuota` is recalculated.
 
 **Non-systemd?** Not supported yet. The script runs standalone but loses auto-start and resource limits.
+
+**Will it eat my disk after months?** No. Samples are capped at ~0.6 MB and pruned daily; status logs are rotated by journald. See [Disk footprint](#disk-footprint) for measured numbers and optional trimming.
 
 ---
 
