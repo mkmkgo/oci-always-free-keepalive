@@ -319,6 +319,8 @@ oci-always-free-keepalive/
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
 ├── LICENSE                       # MIT
+├── .gitattributes                # 强制 LF，避免 Windows 换行破坏脚本
+├── .gitignore
 └── .github/workflows/ci.yml      # py_compile + bash -n + shellcheck
 ```
 
