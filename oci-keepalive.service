@@ -1,0 +1,25 @@
+[Unit]
+Description=OCI Always Free adaptive CPU keepalive
+Documentation=https://github.com/mkmkgo/oci-always-free-keepalive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/oci-keepalive.conf
+ExecStart=/usr/bin/python3 /opt/oci-keepalive/keepalive.py
+Restart=always
+RestartSec=5
+Nice=19
+CPUWeight=1
+CPUQuota=80%
+MemoryMax=64M
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=oci-keepalive
+
+[Install]
+WantedBy=multi-user.target

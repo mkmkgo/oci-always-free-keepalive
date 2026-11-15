@@ -1,0 +1,28 @@
+# /etc/oci-keepalive.conf
+# Edit then: sudo systemctl restart oci-keepalive
+#
+# All values are optional; defaults are shown below.
+
+# Target TOTAL CPU utilization (0.01 - 1.0).
+# Oracle's idle line is a 7-day CPU P95 of 20%; 0.25 - 0.30 leaves safe headroom.
+KEEPALIVE_TARGET=0.28
+
+# Controller period in seconds.
+KEEPALIVE_PERIOD=1.0
+
+# Hard cap on the fraction of one period spent burning CPU.
+KEEPALIVE_CAP=0.90
+
+# Integral feedback gain. Higher = faster response, too high = oscillation.
+KEEPALIVE_GAIN=0.6
+
+# Status line interval in seconds (0 disables).
+KEEPALIVE_LOG_EVERY=60
+
+# Metric sample interval in seconds, used by oci-keepalive-check (0 disables).
+KEEPALIVE_METRICS_EVERY=60
+KEEPALIVE_METRICS_FILE=/var/lib/oci-keepalive/metrics.jsonl
+
+# Pause filling when 1-minute load average exceeds this value (0 disables).
+# Useful extra guard for I/O-heavy workloads.
+KEEPALIVE_MAX_LOAD=0
