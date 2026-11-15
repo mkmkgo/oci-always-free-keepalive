@@ -61,6 +61,7 @@ Therefore the cheapest, least invasive fix is to keep **CPU P95 above 20%**. The
 - **Optional load guard** — `KEEPALIVE_MAX_LOAD` pauses filling when load average spikes
 - **Zero dependencies** — Python stdlib + systemd only; no packages, no cron, no network
 - **Idempotent install / one-command uninstall** — re-running upgrades scripts and preserves your config
+- **Reproducible preemption test** — `tests/test_preemption.py` measures real CPU time from `/proc`
 
 ---
 
@@ -97,6 +98,23 @@ Measured on an A1 Flex (1 OCPU / 6 GB, Ubuntu 24.04) while a PHP build was runni
 | Idle (measured) | ~1% | `cpu=28.7% fill=54.2% target=28%` | 25-26%, total CPU steady at 28% |
 
 `fill` is the controller's duty cycle (throttled by `CPUQuota`), not the actual CPU share; use `cpu=` and the self-check P95 to judge compliance.
+
+---
+
+## Verify: does a real workload preempt the filler?
+
+`tests/test_preemption.py` measures real CPU time from `/proc/<pid>/stat` (not `ps`'s lifetime average). Measured on an A1 Flex (1 OCPU / 6 GB):
+
+```text
+IDLE       : worker gets 20.0% of one core
+UNDER LOAD : business (nice=0) gets 98.8% | worker gets 0.7%
+RECOVERY   : worker back to 26.7%
+RESULT     : PASS - real workload preempts the filler
+```
+
+The service log moves from `fill=54.5%` to `fill=7.4%` under load, and cgroup `cpu.stat` shows `nr_throttled=3537 / nr_periods=5610`: `Nice=19` + `CPUWeight=1` hand almost all time slices to the business, `CPUQuota` hard-limits the filler before the controller even reacts, and the feedback loop drops the fill to near zero, then recovers when the business stops.
+
+Caveats: CFS is not zero-latency hard preemption (a few milliseconds at most); a business process that is itself `nice 19` has no priority over the filler; for I/O-bound workloads (high load, low CPU) enable `KEEPALIVE_MAX_LOAD`. Memory is capped at 64 MB (~9 MB observed), there is no network activity, and disk I/O is one small sample per minute at idle priority.
 
 ---
 

@@ -94,6 +94,7 @@ Oracle 官方文档 [*Always Free Resources → Reclamation of Idle Compute Inst
 - ✅ **额外保护**：可选 `KEEPALIVE_MAX_LOAD`，负载过高时暂停补载，照顾 I/O 密集型业务
 - ✅ **零依赖**：只用 Python 标准库 + systemd，不装包、不联网、不写 crontab
 - ✅ **幂等安装 / 一键卸载**：重复运行是升级，且会保留你改过的配置
+- ✅ **可复现的抢占测试**：`tests/test_preemption.py` 用 `/proc` 真实 CPU 时间验证业务能抢走 CPU
 
 ---
 
@@ -170,6 +171,36 @@ busy = clamp( busy + (TARGET - util) × PERIOD × GAIN , 0 , PERIOD × CAP )
 | 调度优先级 | `Nice=19`、`CPUWeight=1` | 任何业务进程都能立刻抢走 CPU |
 | 硬上限 | `CPUQuota`（安装时按核数算） | 保活最多只能吃到配额 |
 | 资源隔离 | `MemoryMax=64M`、`IOSchedulingClass=idle` | 内存/磁盘不会失控 |
+
+---
+
+## 验证：真实业务能不能抢走 CPU
+
+「不影响业务」是最关键的一问，项目里带了一个可复现的集成测试。它测的是 `/proc/<pid>/stat` 里的真实 CPU 时间差，不是 `ps` 的进程生命周期平均值：
+
+```bash
+sudo python3 tests/test_preemption.py
+```
+
+在 A1 Flex（1 OCPU / 6 GB，Ubuntu 24.04）上的实测输出：
+
+```text
+keepalive main=402117 worker=402118 nice=19
+IDLE       : worker gets 20.0% of one core
+UNDER LOAD : business (nice=0) gets 98.8% | worker gets 0.7%
+RECOVERY   : worker back to 26.7% of one core
+RESULT     : PASS - real workload preempts the filler
+```
+
+同一时刻服务日志从 `cpu=28.0% fill=54.5%` 变成 `cpu=100.0% fill=7.4%`，cgroup `cpu.stat` 显示 `nr_throttled=3537 / nr_periods=5610`。三层保护可以逐一对上：
+
+| 机制 | 作用 |
+|---|---|
+| `Nice=19` + `CPUWeight=1` | 业务进程一来就抢走几乎全部时间片（实测 98.8% vs 0.7%） |
+| `CPUQuota` | 控制器还没反应过来时，cgroup 已经把保活硬限流 |
+| 自适应反馈 | 几个周期内把补载量压到接近 0；业务结束后自动恢复到目标值 |
+
+边界条件也说清楚：CFS 不是零延迟的硬抢占（要等当前时间片结束，毫秒级）；如果业务进程自己也是 `nice 19`，就谈不上"优先"；I/O 密集型业务（load 高但 CPU 不高）建议打开 `KEEPALIVE_MAX_LOAD`。内存侧有 `MemoryMax=64M`（实测约 9 MB），脚本不联网，磁盘 IO 仅每分钟一条采样且设为 idle 优先级。
 
 ---
 
@@ -324,6 +355,7 @@ oci-always-free-keepalive/
 ├── LICENSE                       # MIT
 ├── .gitattributes                # 强制 LF，避免 Windows 换行破坏脚本
 ├── .gitignore
+├── tests/test_preemption.py      # 集成测试：验证真实业务抢占 CPU
 └── .github/workflows/ci.yml      # py_compile + bash -n + shellcheck
 ```
 
