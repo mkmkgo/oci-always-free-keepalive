@@ -131,7 +131,9 @@ oci-keepalive-check                      # 7 天 P95 自检
 |---|---|---|---|
 | 编译占满单核 | ~94% | `cpu=100.0% fill=0.0% target=28%` | **1.9%**（几乎完全让路） |
 | 临时把目标拉到 150% | — | `fill 0% → 60% → 90%(上限)` | 补载链路确认可用 |
-| 业务空闲（预期） | ~0% | `cpu≈28% fill≈28%` | 补齐到 28% |
+| 业务空闲（实测） | ~1% | `cpu=28.7% fill=54.2% target=28%` | 25~26%，整机稳定在 28% |
+
+`fill` 是控制器下发的**占空比**（受 `CPUQuota` 节流影响），不等于实际 CPU 占比；判断是否达标请看 `cpu=` 与自检的 P95。
 
 ---
 
@@ -186,7 +188,7 @@ busy = clamp( busy + (TARGET - util) × PERIOD × GAIN , 0 , PERIOD × CAP )
 --------------------------------------------------------------
   CPU P95          28.4%   (above 20% threshold)
   CPU average      27.9%
-  fill average     22.1%   (rest is your real workload)
+  fill duty        22.1%   (controller duty cycle, not CPU share)
 --------------------------------------------------------------
   [OK]   CPU P95 >= 20%: the 7-day idle condition is broken.
 ==============================================================
@@ -219,6 +221,7 @@ oci-keepalive-check --strict   # 未达标退出 1，无数据退出 2
 | `KEEPALIVE_MAX_LOAD` | `0` | 1 分钟 load 超过该值就暂停补载，0 = 关闭 |
 
 > 想更保守就用 `KEEPALIVE_TARGET=0.23`；想更保险就用 `0.30`。只要 P95 稳定高于 20% 即可。
+> 调高 `KEEPALIVE_TARGET` 后建议重跑一次 `install.sh`，让 `CPUQuota` 按新目标重新计算，否则配额会压住补载上限。
 
 ---
 

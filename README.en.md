@@ -94,7 +94,9 @@ Measured on an A1 Flex (1 OCPU / 6 GB, Ubuntu 24.04) while a PHP build was runni
 |---|---|---|---|
 | Build saturating the core | ~94% | `cpu=100.0% fill=0.0% target=28%` | **1.9%** |
 | Target temporarily raised to 150% | — | `fill 0% -> 60% -> 90% (cap)` | fill path verified |
-| Idle (expected) | ~0% | `cpu~28% fill~28%` | fills to 28% |
+| Idle (measured) | ~1% | `cpu=28.7% fill=54.2% target=28%` | 25-26%, total CPU steady at 28% |
+
+`fill` is the controller's duty cycle (throttled by `CPUQuota`), not the actual CPU share; use `cpu=` and the self-check P95 to judge compliance.
 
 ---
 
@@ -113,7 +115,7 @@ The service appends one sample per minute to `/var/lib/oci-keepalive/metrics.jso
 --------------------------------------------------------------
   CPU P95          28.4%   (above 20% threshold)
   CPU average      27.9%
-  fill average     22.1%   (rest is your real workload)
+  fill duty        22.1%   (controller duty cycle, not CPU share)
 --------------------------------------------------------------
   [OK]   CPU P95 >= 20%: the 7-day idle condition is broken.
 ==============================================================
@@ -142,6 +144,8 @@ Edit `/etc/oci-keepalive.conf`, then `sudo systemctl restart oci-keepalive`.
 | `KEEPALIVE_METRICS_EVERY` | `60` | Sample interval, 0 disables |
 | `KEEPALIVE_METRICS_FILE` | `/var/lib/oci-keepalive/metrics.jsonl` | Sample file |
 | `KEEPALIVE_MAX_LOAD` | `0` | Pause filling above this 1-min load average; 0 disables |
+
+After raising `KEEPALIVE_TARGET`, re-run `install.sh` so `CPUQuota` is recalculated for the new target.
 
 ---
 

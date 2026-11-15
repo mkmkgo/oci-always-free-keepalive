@@ -156,7 +156,7 @@ def render(r):
     print("  CPU P95          {:.1%}   ({} {:.0%} threshold)".format(
         r["cpu_p95"], "above" if r["cpu_p95"] >= r["threshold"] else "BELOW", r["threshold"]))
     print("  CPU average      {:.1%}".format(r["cpu_avg"]))
-    print("  fill average     {:.1%}   (rest is your real workload)".format(r["fill_avg"]))
+    print("  fill duty        {:.1%}   (controller duty cycle, not CPU share)".format(r["fill_avg"]))
     print(DASH)
 
     if r["safe"]:
