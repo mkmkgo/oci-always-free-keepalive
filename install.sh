@@ -45,7 +45,10 @@ fetch() {
 log "Installing oci-keepalive ..."
 install -d -m 755 "${PREFIX}" "${STATE}"
 # Shared singleton lock: world-writable so a manual run sees the service's lock.
-: > /run/oci-keepalive.lock 2>/dev/null || true
+# Use touch, not ">" -- truncating an existing lock file would erase the PID
+# that the running service wrote into it (flock itself lives on the inode and
+# is unaffected, but the file would no longer be useful for diagnostics).
+touch /run/oci-keepalive.lock 2>/dev/null || true
 chmod 666 /run/oci-keepalive.lock 2>/dev/null || true
 install -m 755 "$(fetch keepalive.py)" "${PREFIX}/keepalive.py"
 install -m 755 "$(fetch check.py)" "${PREFIX}/check.py"
